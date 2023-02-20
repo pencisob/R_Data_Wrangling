@@ -1,0 +1,160 @@
+mise::mise()
+
+### Importing the data
+url = "https://raw.githubusercontent.com/JeffSackmann/tennis_wta/master/wta_rankings_current.csv"
+df <- readr::read_csv(url(url))
+df
+glimpse(df)
+skimr::skim(df)
+table(df$tours)
+table(df$player)
+table (df$ranking_date)
+
+### Preparing the data: Tours in factors, date in date format (ymd), variable names
+rm (url)
+cat("\014")
+df1 <- df %>% mutate(tours=as.factor(tours))
+colnames(df1) <- c("date", "rank", "id", "pts", "tours")
+df1$date2 <-lubridate::ymd(df1$date)
+df1 <- df1 %>% select(6,2,3,4,5)
+df1 <- dplyr::rename(df1, date = date2)
+df1
+
+### Exploring the total data (Goal1)
+skimr::skim(df1)
+glimpse (df1)
+
+## Missising values and Outliers
+descriptr::ds_screener(df1)
+
+##Tours
+df1 <- df1 %>% mutate(tours=as.integer(tours))
+class(df1$tours)
+ggplot(df1, aes(tours))+geom_boxplot(outlier.colour = "blue")
+psych::describe(df1$tours)
+ggplot(df1, aes(tours))+geom_histogram(bins = 15, color= "black", fill = "gray")
+
+##pts
+ggplot(df1, aes(pts))+geom_boxplot(outlier.colour = "blue")
+psych::describe(df1$pts)
+ggplot(df1, aes(pts))+geom_histogram(binwidth =  100, color= "black", fill = "gray")
+
+###Selecting only one date and running the exploratory data: 2023-01-16
+## tours
+table(df1$date)
+df1 %>% filter(date =="2023-01-16") %>% summarize(avgtours = mean(tours), maxtours = max(tours), mintours=min(tours), mediantours = median(tours))
+df1 %>% filter(date =="2023-01-16") %>% ggplot(aes(tours))+geom_boxplot(outlier.colour = "blue")
+df1 %>% filter(date =="2023-01-16") %>% ggplot(aes(tours))+geom_histogram(bins = 15, color = "black", fill = "gray")
+## pts
+df1 %>% filter(date =="2023-01-16") %>% summarize(avgpts = mean(pts), maxpts = max(pts), minpts=min(pts), medianpts = median(pts))
+df1 %>% filter(date =="2023-01-16") %>% ggplot(aes(pts))+geom_boxplot(outlier.colour = "blue")
+df1 %>% filter(date =="2023-01-16") %>% ggplot(aes(pts))+geom_histogram(bins = 15, color = "black", fill = "gray")
+## tours+ pts
+df1 %>% filter(date =="2023-01-16")%>% select( pts, tours) %>% GGally::ggpairs()
+# Correlation and two way test between points and tours
+corpts_tour <- df1 %>% filter(date =="2023-01-16")%>% select( tours, pts)
+corpts_tour
+ggplot(corpts_tour, aes(x= tours, y= pts))+geom_point(alpha=0.5)+geom_smooth(method = lm, se = F)
+ggplot(corpts_tour, aes(x= pts, y= tours))+geom_point(alpha=0.3)+geom_smooth(method = lm, se = F)+geom_quantile(color = "red", quantiles = 0.5, linewidth = 1)
+corpt <- cor(corpts_tour)
+corpt
+corrgram::corrgram(corpt)
+corrplot::corrplot(corpt)
+cor.test(df1$pts, df1$tours)
+cor.test(df1$pts, df1$tours, method = "spearman")
+rm(corpt, corpts_tour)
+
+
+### Merging the data with player dataset
+
+## importing player dataset
+
+url ="https://raw.githubusercontent.com/JeffSackmann/tennis_wta/master/wta_players.csv"
+dfp <- readr::read_csv(url(url))
+dfp
+
+## missing values and understanding possible factors and dates
+descriptr::ds_screener(dfp)
+glimpse(dfp)
+skimr::skim(dfp)
+
+## missing values for hand: replace for "U" 
+dfp %>% filter(is.na(hand))
+table (dfp$hand)
+dfp <- dfp %>% mutate(hand=ifelse(is.na(hand), "U", hand))
+
+## missing values for ioc: ? and NA turned into "TBD"
+table(unique(dfp$ioc))
+dfp %>% filter(ioc=="?")
+dfp <- dfp %>% mutate(ioc=ifelse(ioc=="?", "TBD", ioc))
+dfp %>% filter(is.na(ioc))%>% select(1:3,5)
+dfp %>% group_by(ioc) %>% summarise (N=n())%>% arrange(desc(N))%>% print(n=50)
+dfp <- dfp %>% mutate(ioc=ifelse(is.na(ioc), "TBD", ioc))
+dfp %>% filter(ioc =="TBD")
+
+## preparing dataset: factors(hand) and dates(dob)
+
+dfp <- dfp %>% mutate(hand=as.factor(hand))
+dfp %>% select(dob)
+dfp <- dfp %>% mutate(dob=lubridate::ymd(dob))
+dfp
+
+### Merge Datasets
+table (df1$date)
+df2 <- df1 %>% filter(date=="2023-01-16")
+dfp <- dfp %>% rename("id"="player_id")
+df1
+dfp
+merge <- left_join(df2, dfp, by ="id")
+merge
+
+## Exploring merge and creating age variables + N/A, NaN, -inf
+glimpse(merge)
+psych::describe(merge)
+descriptr::ds_screener(merge)
+unique(merge$date)
+head (merge, 20)
+tail (merge, 20)
+skimr::skim(merge)
+merge
+
+# Create age variable
+install.packages("lubridate")
+library(lubridate)
+today()
+merge$age <- round((interval(start = ymd(merge$dob), end = ymd(today()))/years(1)),0)
+merge
+def <- merge%>% select(2,3,4,5,6,7,8,10,11,13) 
+
+## Exploring def
+glimpse (def)
+descriptr::ds_screener(def)
+skimr::skim(def)
+psych::describe(def$rank)
+def
+
+def %>% ggplot(aes(x=ioc))+geom_bar(stat='count')
+def %>% drop_na(height) %>% ggplot(aes(x=height), na.omit())+geom_histogram(binwidth = 1) + theme_minimal()
+def %>% drop_na(age) %>% ggplot(aes(x=age), na.omit())+geom_histogram(binwidth = 1, fill="gray", color = "black") + theme_minimal()
+def %>% select(height, age) %>% drop_na() %>% GGally::ggpairs() 
+def %>% select(pts, tours, height, age) %>% drop_na() %>% GGally::ggpairs() 
+
+def%>% group_by(ioc) %>% summarise(N=length(ioc), totpts=sum(pts), medpts = median(pts), maxpts = max(pts)) %>% arrange(desc(totpts)) %>% print(n=30)
+
+def%>% filter(name_first=="Venus")
+def%>% filter(ioc=="BLR")
+def%>% filter(ioc=="COL")%>% arrange((rank))
+(table(def$ioc))
+
+## Goal1: Deeply understand the January 2023 top15 players of WTA
+
+def %>% slice(1:15)%>% ggplot(aes(x=height))+geom_histogram(fill= 'grey', color = 'black')+theme_bw()
+def %>% slice(1:15)%>% ggplot(aes(x=pts))+geom_histogram(fill= 'grey', color = 'black')+theme_bw()
+def %>% slice(1:15)%>% ggplot(aes(x=tours))+geom_histogram(fill= 'grey', color = 'black')+theme_bw()
+def %>% slice(1:15)%>% ggplot(aes(x=age))+geom_histogram(fill= 'grey', color = 'black')+theme_bw()
+
+def %>% slice(1:15)%>% ggplot(aes(x=hand))+geom_bar(stat='count')+theme_bw()
+
+def %>% slice(1:15)%>% group_by(ioc)%>% summarise(N=length(ioc), totpts=sum(pts) ) %>% arrange(desc(N))
+def %>% slice(1:15)%>% group_by(ioc)%>% summarise(N=length(ioc), totpts=sum(pts), medpts = median(pts) ) %>% arrange(desc(totpts))
+def %>% slice(1:15)%>% select(pts, tours, height, age) %>% GGally::ggpairs()
